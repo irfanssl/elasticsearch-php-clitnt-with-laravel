@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
+Route::controller(App\Http\Controllers\SearchIndexController::class)->group(function () {
+    Route::prefix('search')->group(function(){
+        Route::post('books', 'searchBooks');
+    });
 });

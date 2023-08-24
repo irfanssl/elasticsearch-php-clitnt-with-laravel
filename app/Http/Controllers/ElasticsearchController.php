@@ -3,14 +3,21 @@
 namespace App\Http\Controllers;
 
 use Elastic\Elasticsearch\ClientBuilder;
+use Elastic\Elasticsearch\Exception\ClientResponseException;
+use Elastic\Elasticsearch\Exception\ServerResponseException;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Http\Request;
+use Exception;
 
 class ElasticsearchController extends Controller
 {
-    private $index = 'books_dataset'; // from table books, the index name is just random name you want, i prefer books_dataset
+    private $index = null;
     private $client;
 
-    public function __construct()
+    public function __construct(string $index = null)
     {
+        $this->index = $index;
+
          /*
             ----------- ELASTICSEARCH USING ELASTIC CLIENT BUILDER AND SSL ---------------
             it's required SSL certificate
@@ -26,10 +33,10 @@ class ElasticsearchController extends Controller
             and paste it inside folder storage/app
         */
         $this->client = ClientBuilder::create()
-                        ->setHosts([env('ELASTICSEARCH_HOST')])
-                        ->setBasicAuthentication(env('ELASTICSEARCH_USERNAME'), env('ELASTICSEARCH_PASSWORD'))
+                        ->setHosts([config('elasticsearch.host')])
+                        ->setBasicAuthentication(config('elasticsearch.username'), config('elasticsearch.password'))
                         // if you don't want to use ssl uncomment this line
-                        ->setCABundle(storage_path().'/app/es01.crt')
+                        ->setCABundle(storage_path().'/app/http_ca.crt')
                         // and comment this line
                         // ->setSSLVerification(false)
 
@@ -69,7 +76,7 @@ class ElasticsearchController extends Controller
     }
 
 
-    public function createNewIndex(){
+    public function createNewIndex(Array $columns){
         $params = $params = [
             'index' => $this->index,
             'body' => [
@@ -82,44 +89,88 @@ class ElasticsearchController extends Controller
                         'enabled' => true
                     ],
 
-                    // columns : name, description, author (on tbale books)
-                    'properties' => [
-                        'name' => [
-                            'type' => 'keyword'
-                        ],
-                        'description' => [
-                            'type' => 'keyword'
-                        ],
-                        'author' => [
-                            'type' => 'keyword'
-                        ]
-                    ]
+                    // 'properties' => [
+                    //     'name' => [
+                    //         'type' => 'keyword'
+                    //     ],
+                    //     'description' => [
+                    //         'type' => 'keyword'
+                    //     ],
+                    //     'author' => [
+                    //         'type' => 'keyword'
+                    //     ]
+                    // ]
+
+                    'properties' => function() use($columns){
+                        $array = [];
+                        foreach($columns as $col){
+                            $array[$col]  = ['type' => 'keyword'];
+                        }
+                        return $array;
+                    }
+
+                    
                 ]
             ]
         ];
         
-        return $this->client->indices()->create($params);
+        try {
+            return response()->json([
+                                    'code'      => 200,
+                                    'message'   => 'success',
+                                    'data'      => $this->client->indices()->create($params)
+                                ], 200);
+        } catch (ClientResponseException $e) {
+            return response()->json([
+                                'code'      => 400,
+                                'message'   => $e->getMessage(),
+                                'data'      => ''
+                            ], 400);
+        }
     }
 
 
     public function indexingDocument(Int $id, String $jsonString){
-        $index = [
+        $param = [
             'index' => $this->index,
             'id'    => $id,
             'body'  => $jsonString
         ];
-        $response = $this->client->index($index);
-        return $response->asArray();
+        try {
+            return response()->json([
+                                    'code'      => 200,
+                                    'message'   => 'success',
+                                    'data'      => $this->client->index($param)->asArray()
+                                ], 200);
+        } catch (ClientResponseException $e) {
+            return response()->json([
+                                'code'      => 400,
+                                'message'   => $e->getMessage(),
+                                'data'      => ''
+                            ], 400);
+        } catch (ServerResponseException $e) {
+            return response()->json([
+                                'code'      => 500,
+                                'message'   => $e->getMessage(),
+                                'data'      => ''
+                            ], 500);
+        } catch (Exception $e) {
+            return response()->json([
+                                'code'      => 500,
+                                'message'   => $e->getMessage(),
+                                'data'      => ''
+                            ], 500);
+        }
     }
 
-    public function searchDocument(string $keyword){
+    public function searchDocument(string $keyword, Array $columns){
         $params = [
             'index' => $this->index,
             'body'  => [
                 'query' => [
                     'multi_match' => [
                         'query' => $keyword,
-                        "fields" => ['name','description','author']
+                        "fields" => $columns
                     ]
                 ]
             ]
@@ -143,4 +194,12 @@ class ElasticsearchController extends Controller
         //     'index' => $this->index
         // ]);
     }
+
+    // public function updateDocument(Int $doc_id){
+    //     // bla bla bla
+    // }
+
+    // public function deleteDocument(Int $doc_id){
+    //     // bla bla bla
+    // }
 }
